@@ -19,14 +19,16 @@ intents.messages = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 SERVER_ID = REDACTED  # Your server ID
-EVENTS_CHANNEL_ID = REDACTED  # Correct #events channel ID
+AUTHOR_ID = REDACTED # Admin user ID
+EVENTS_CHANNEL_ID = REDACTED  # Events channel ID
+LOG_CHANNEL_ID = REDACTED # Log channel ID for logging bot activities
 
 current_custom_status = "under construction"
 reaction_cooldowns = defaultdict(float)
 event_threads = {}
 deactivated_messages = set()
 
-log = None  # Placeholder for logger
+log = None  # Placeholder for our logger
 
 
 async def setup_log_channel():
@@ -36,7 +38,7 @@ async def setup_log_channel():
         guild = bot.get_guild(SERVER_ID)
         if guild is None:
             await asyncio.sleep(1)
-    status_logs_channel = discord.utils.get(guild.text_channels, name="status-logs")
+    status_logs_channel = guild.get_channel(LOG_CHANNEL_ID)
 
     class LogWrapper:
         def __init__(self, channel):
@@ -152,7 +154,7 @@ async def on_ready():
     skipped_missing_channel = 0
 
     for msg in messages:
-        if msg.author.id != REDACTED:
+        if msg.author.id != AUTHOR_ID:
             debug_lines.append(f"  Skipped due to author mismatch: {msg.author.id}")
             skipped_author += 1
             continue
@@ -391,7 +393,7 @@ async def on_guild_channel_delete(channel):
 
 @bot.command()
 async def dnd(ctx):
-    if ctx.author.id != REDACTED:
+    if ctx.author.id != AUTHOR_ID:
         await ctx.send("You don't have permission to do that.")
         return
     await bot.change_presence(activity=discord.CustomActivity(name=current_custom_status), status=discord.Status.dnd)
@@ -399,7 +401,7 @@ async def dnd(ctx):
 
 @bot.command()
 async def on(ctx):
-    if ctx.author.id != REDACTED:
+    if ctx.author.id != AUTHOR_ID:
         await ctx.send("You don't have permission to do that.")
         return
     await bot.change_presence(status=discord.Status.online)
@@ -408,7 +410,7 @@ async def on(ctx):
 @bot.command()
 async def status(ctx, *, new_status: str):
     global current_custom_status
-    if ctx.author.id != REDACTED:
+    if ctx.author.id != AUTHOR_ID:
         await ctx.send("You don't have permission to do that.")
         return
     current_custom_status = new_status  # Save it globally
