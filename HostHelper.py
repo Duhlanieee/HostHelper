@@ -9,6 +9,9 @@ import json
 import os
 import unicodedata
 from operator import itemgetter
+from discord.ext import tasks
+from datetime import datetime, timedelta, time
+from zoneinfo import ZoneInfo
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -22,6 +25,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 SERVER_ID = REDACTED  # Server ID (obviously lmao)
 AUTHOR_ID = REDACTED # Admin user ID (das me!)
 EVENTS_CHANNEL_ID = REDACTED  # Events channel ID
+EVENTS_CATEGORY_ID = REDACTED # Events category (where all the private event chats go)
 LOG_CHANNEL_ID = REDACTED # Log channel ID for logging bot activities
 
 current_custom_status = "under construction" # under construction is the default when it first boots
@@ -82,28 +86,87 @@ def parse_event_info(message_content):
     suffix_match = re.search(r'\d{1,2}(st|nd|rd|th)', date_line_clean)
     suffix = suffix_match.group(1) if suffix_match else "th"
 
-    event_date = f"{month} {day}{suffix}"
+    # event_date = f"{month} {day}{suffix}"
     channel_date_part = f"{month.lower()}-{day}{suffix}"
 
     known_events = ["Wii Cook", "Wii Go Out To Eat"]
     line2 = lines[1].strip()
-
+    # Find event name from known_events
     event_name = None
     for base in known_events:
         if re.search(rf'\b{re.escape(base)}\b', line2, re.IGNORECASE):
             event_name = base
             break
-
     if not event_name:
         if log:
-            asyncio.create_task(log.send(f"⚠️ Line2 '{line2}' didn't match any known event names."))
+            asyncio.create_task(log.send(f"⚠️ Line2 '{line2}' didn't match any known event names: {known_events}."))
         return None, None, None
-
+    # create channel name from event_name and month and day
     base_event_hyphenated = re.sub(r'\W+', '-', event_name.lower()).strip('-')
     channel_name = f"{base_event_hyphenated}-{channel_date_part}"
+    # create datetime object
+    try:
+        # Assume current year
+        event_date = datetime.strptime(f"{month} {day} {datetime.now().year}", "%B %d %Y").date()
+    except ValueError:
+        if log:
+            asyncio.create_task(log.send(f"⚠️ Failed to convert date: {month} {day}"))
+        return None, None
 
-    return event_name, channel_name, event_date
+    return event_name, channel_name, event_date # commented line 89
 
+
+
+
+
+
+
+
+
+
+# function to check if Events category is empty, and if it is,
+# creates a channel that just says "there are no events at this time"
+async def update_no_active_events_voice_channel(guild):
+    category = discord.utils.get(guild.categories, id=EVENTS_CATEGORY_ID)
+    if not category:
+        if log:
+            await log.send("⚠️ Events category not found while updating 'no active events' voice channel.")
+        return
+
+    # Check if there are any text channels in the category
+    text_channels = [ch for ch in category.channels if isinstance(ch, discord.TextChannel)]
+    # Find existing "no active events" voice channel if any
+    voice_channel_name = "there are no events at this time"
+    existing_voice = discord.utils.get(category.voice_channels, name=voice_channel_name)
+    if not text_channels:
+        # No event text channels exist — create voice channel if it doesn't exist
+        if not existing_voice:
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(connect=False),
+                guild.me: discord.PermissionOverwrite(connect=True),
+            }
+            try:
+                await guild.create_voice_channel(
+                    voice_channel_name,
+                    category=category,
+                    overwrites=overwrites,
+                    reason="No active event text channels, showing placeholder voice channel."
+                )
+                if log:
+                    await log.send(f"🔈 Created placeholder voice channel '{voice_channel_name}'.")
+            except Exception as e:
+                if log:
+                    await log.send(f"❌ Failed to create placeholder voice channel: {e}")
+    else:
+        # There are active event text channels — delete the placeholder voice channel if it exists
+        if existing_voice:
+            try:
+                await existing_voice.delete(reason="Active event text channels now present.")
+                if log:
+                    await log.send(f"🗑 Deleted placeholder voice channel '{voice_channel_name}'.")
+            except Exception as e:
+                if log:
+                    await log.send(f"❌ Failed to delete placeholder voice channel: {e}")
 
 
 
@@ -138,7 +201,7 @@ async def on_ready():
     
     # Make sure Events channel exists
     events_channel = discord.utils.get(guild.text_channels, id=EVENTS_CHANNEL_ID)
-    events_category = discord.utils.get(guild.categories, name='Events')
+    events_category = discord.utils.get(guild.categories, id=EVENTS_CATEGORY_ID)
     if not events_channel or not events_category:
         await log.send("One or more required channels/categories are missing.")
         return
@@ -148,9 +211,9 @@ async def on_ready():
     active_events.clear()
     private_channels = {channel.name: channel for channel in events_category.text_channels}
     debug_lines = []
-    debug_lines.append(f"Found {len(private_channels)} private channels in Events category:")
-    for name in private_channels.keys():
-        debug_lines.append(f"  {name}")
+    #debug_lines.append(f"Found {len(private_channels)} private channels in Events category:")
+    #for name in private_channels.keys():
+    #    debug_lines.append(f"  {name}")
     messages = [msg async for msg in events_channel.history(limit=4)]  
     recovered = 0
     skipped_author = 0
@@ -173,14 +236,20 @@ async def on_ready():
         if not private_channel:
             skipped_missing_channel += 1
             continue
-        existing_threads = [t for t in msg.channel.threads if t.name == f"{event_name} Thread"]
+        existing_threads = [t for t in msg.channel.threads if t.name == f"{channel_name}"]
         if existing_threads:
             thread = existing_threads[0]
         else:
-            thread = await msg.create_thread(name=f"{event_name} Thread", auto_archive_duration=10080)
+            thread = await msg.create_thread(name=f"{channel_name}", auto_archive_duration=10080)
             await thread.send("This is a thread for attendance notices.")
             await thread.edit(locked=True, archived=False)
-        active_events[msg.id] = (thread, private_channel)
+        active_events[msg.id] = {
+            "thread": thread,
+            "channel": private_channel,
+            "event_date": event_date,
+            "reminders_sent": set(),
+        }
+
         recovered += 1
         # Ensure message is cached
         try:
@@ -202,22 +271,28 @@ async def on_ready():
         await log.send("\n".join(debug_lines))
     except Exception as e:
         await log.send(f"Failed to send debug logs: {e}")
-    summary = (
-        f"✅ Startup Summary\n"
-        f"- Recovered threads: **{recovered}**\n"
-        f"- Skipped (author mismatch): **{skipped_author}**\n"
-        f"- Skipped (parse error): **{skipped_parse}**\n"
-        f"- Skipped (no channel match): **{skipped_missing_channel}**\n"
-        f"- Total messages scanned: **{len(messages)}**"
+    await log.send(
+    #    f"✅ Startup Summary\n"
+        f"Recovered threads: **{recovered}**\n"
+    #    f"- Skipped (author mismatch): **{skipped_author}**\n"
+    #    f"- Skipped (parse error): **{skipped_parse}**\n"
+    #    f"- Skipped (no channel match): **{skipped_missing_channel}**\n"
+    #    f"- Total messages scanned: **{len(messages)}**"
     )
-    await log.send(summary)
 
     # Invite tracking
     if guild:
         invites = await guild.invites()
         global invite_uses
         invite_uses = {invite.code: invite.uses for invite in invites}
-
+        
+    # start auto message loop
+    if not check_event_reminders.is_running():
+        check_event_reminders.start()
+        
+    # check for empty Event category, make channel "there are no events at this time" if applicable
+    if guild:
+        await update_no_active_events_voice_channel(guild)
 
 
 
@@ -240,7 +315,7 @@ async def on_message(message):
         return 
     # parses event info from message
     event_name, channel_name, event_date = parse_event_info(message.content)
-    if not (event_name and event_date): 
+    if not (channel_name and event_date): 
         await log.send(f"❌ Could not parse event from message ID {message.id}")
         return 
     # react w a thumbs up so I know the bot sees the message (also acts as my own count towards attendance)
@@ -251,23 +326,34 @@ async def on_message(message):
             await log.send(f"Skipping duplicate event setup for message ID {message.id}")
         return
     # create corresponding thread
-    event_thread = await message.create_thread(name=f"{event_name} Thread", auto_archive_duration=10080)
+    event_thread = await message.create_thread(name=f"{channel_name}", auto_archive_duration=10080)
     await event_thread.send("This is a thread for attendance notices.")
     await event_thread.edit(locked=True, archived=False)
     # make sure Events category exists
     guild = bot.get_guild(SERVER_ID)
-    category = discord.utils.get(guild.categories, name="Events")
+    category = discord.utils.get(guild.categories, id=EVENTS_CATEGORY_ID)
     if category is None:
-        category = await guild.create_category("Events")
+        await log.send(f"⚠️ Events CATEGORY does not exist!!")
     # create corresponding private text channel for event
     overwrites = {
         guild.default_role: discord.PermissionOverwrite(view_channel=False), # members cant see, but bot can
         guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True, manage_permissions=True),
     }
     private_channel = await guild.create_text_channel(channel_name, category=category, overwrites=overwrites)
-    await private_channel.send(f"This is the chat for those attending {event_name} on {event_date}!")
+    await update_no_active_events_voice_channel(guild)
+    # send initial message in text channel
+    if 10 <= event_date.day % 100 <= 20:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(event_date.day % 10, 'th')
+    await private_channel.send(f"This is the chat for those attending {event_name} on {event_date.strftime('%B')} {event_date.day}{suffix}!")
     # put event message in active list with corresponding thread and private channel
-    active_events[message.id] = (event_thread, private_channel)
+    active_events[message.id] = {
+        "thread": event_thread,
+        "channel": private_channel,
+        "event_date": event_date,
+        "reminders_sent": set(),
+    }
     if log:
         await log.send(f"🆕 Registered new event: msg {message.id} with thread {event_thread.id} and channel {private_channel.id}")
 
@@ -386,15 +472,55 @@ async def on_raw_reaction_remove(payload):
 async def on_guild_channel_delete(channel):
     if not isinstance(channel, discord.TextChannel):
         return
-    if getattr(channel.category, "name", "").lower() == "events":
-        for message_id, (thread, private_channel) in list(active_events.items()):
-            if private_channel.id == channel.id:
+    if channel.category_id == EVENTS_CATEGORY_ID:
+        for message_id, data in list(active_events.items()):
+            if data["channel"].id == channel.id:
+                thread = data["thread"]
+                # Attempt to delete the associated thread
+                try:
+                    await thread.delete()
+                    await log.send(f"🧵 Deleted thread '{thread.name}' because linked channel '{channel.name}' was deleted.")
+                except Exception as e:
+                    if log:
+                        await log.send(f"⚠️ Failed to delete thread for message ID {message_id}: {e}")
+                # Remove the event from active_events
                 active_events.pop(message_id)
                 if log:
                     try:
-                        await log.send(f"⚠️ Event channel '{channel.name}' deleted. Removed message ID {message_id} from active_events.")
+                        await log.send(f"⚠️ Event channel '{channel.name}' deleted. Also removed thread '{thread.name}' and message ID {message_id} from active_events.")
                     except Exception as e:
-                        log.send(f"Logging failed: {e}")
+                        await log.send(f"Logging failed: {e}")
+                guild = channel.guild
+                await update_no_active_events_voice_channel(guild)
+
+
+
+
+
+# automatic messages in chats after events
+@tasks.loop(hours=2)
+async def check_event_reminders():
+    now = datetime.now(ZoneInfo("America/New_York"))
+    today = now.date()
+    for msg_id, data in list(active_events.items()):
+        thread = data["thread"]
+        channel = data["channel"]
+        event_date = data["event_date"]
+        days_since = (today - event_date).days
+        # Ensure we only run this at/near 12:00pm NY time
+        if time(12, 0) <= now.time() < time(14, 0):  # 2-hour window (12–2pm)
+            if days_since == 1 and "day1" not in data.get("reminders_sent", set()):
+                await channel.send("We extend our heartfelt gratitude to all who have graced this event with their presence! Kindly share your photos with us here in chat :)")
+                data.setdefault("reminders_sent", set()).add("day1")
+            elif days_since == 2 and "day2" not in data.get("reminders_sent", set()):
+                await channel.send("Be sure to share your pictures and save the ones you treasure most — this chat will be closed within the next 24 hours!")
+                data.setdefault("reminders_sent", set()).add("day2")
+            elif days_since == 3 and "day3" not in data.get("reminders_sent", set()):
+                if log:
+                    await log.send(f"⚠️ Reminder: The event channel for message ID {msg_id} needs to be deleted soon.")
+                data.setdefault("reminders_sent", set()).add("day3")
+                # remove the event from active_events
+                del active_events[msg_id]
 
 
 
@@ -551,11 +677,23 @@ def format_leaderboard_embed(bot):
     )
     medals = ["🥇", "🥈", "🥉"]
     lines = []
-    for i, (user_id, score) in enumerate(sorted_users):
+    # Move host (author) to the top with a 👑
+    author_line = None
+    non_author_users = []
+    for user_id, score in sorted_users:
+        mention = f"<@{user_id}>"
+        if user_id == str(AUTHOR_ID):
+            author_line = f"👑 {mention} — {score} attendance{'s' if score != 1 else ''}"
+        else:
+            non_author_users.append((user_id, score))
+    if author_line:
+        lines.append(f"**{author_line}**")
+        lines.append("")  # Add space between host and the rest
+    # Apply medals to top 3 of the remaining users
+    for i, (user_id, score) in enumerate(non_author_users):
         mention = f"<@{user_id}>"
         medal = medals[i] if i < len(medals) else "‣"
         line = f"{medal} {mention} — {score} attendance{'s' if score != 1 else ''}"
-        # Bold the whole line for top 3
         if i < 3:
             line = f"**{line}**"
         lines.append(line)
@@ -636,7 +774,7 @@ def find_member_by_name(guild, name_fragment):
 
 @bot.command()
 async def add(ctx, *, name: str):
-    await log.send(f"Received !add command from {ctx.author} for name fragment '{name}'.")
+    # await log.send(f"Received !add command from {ctx.author} for name fragment '{name}'.")
     member = find_member_by_name(ctx.guild, name)
     if not member:
         await ctx.send(f"No matching member found for '{name}'.")
@@ -669,13 +807,3 @@ async def remove(ctx, *, name: str):
         await ctx.send(f"{member.display_name} has no points to remove.")
 
 
-
-
-
-
-
-
-
-
-# Run bot with token
-bot.run("REDACTED")
