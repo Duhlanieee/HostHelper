@@ -20,5 +20,3 @@ The bot's presence in the server acts as a personification of my house. The stat
 
 <img src=Leaderboard.png alt=Discord Server Screenshot width=1050>
 
-<img src=Profile.jpg alt=Discord Server Screenshot width=200 align=left>
-
