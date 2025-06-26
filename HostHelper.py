@@ -10,7 +10,8 @@ import os
 import unicodedata
 from operator import itemgetter
 from discord.ext import tasks
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
+import time
 from zoneinfo import ZoneInfo
 
 intents = discord.Intents.default()
@@ -101,7 +102,6 @@ def parse_event_info(message_content):
         if log:
             asyncio.create_task(log.send(f"⚠️ Line2 '{line2}' didn't match any known event names: {known_events}."))
         return None, None, None
-    # create channel name from event_name and month and day
     base_event_hyphenated = re.sub(r'\W+', '-', event_name.lower()).strip('-')
     channel_name = f"{base_event_hyphenated}-{channel_date_part}"
     # create datetime object
@@ -113,7 +113,7 @@ def parse_event_info(message_content):
             asyncio.create_task(log.send(f"⚠️ Failed to convert date: {month} {day}"))
         return None, None
 
-    return event_name, channel_name, event_date # commented line 89
+    return event_name, channel_name, event_date
 
 
 
@@ -391,16 +391,28 @@ async def on_raw_reaction_add(payload):
             return
         display_name = member.nick if member.nick else member.name
         # await log.send(f"👤 Member resolved: {display_name}")
-        thread, private_channel = active_events[message_id]
+        thread = active_events[message_id]["thread"]
+        private_channel = active_events[message_id]["channel"]
         # await log.send(f"📌 Event thread ID: {thread.id}, private channel ID: {private_channel.id}")
-
+        
         # spam cooldowns
         now = time.time()
         last_time = reaction_cooldowns.get(payload.user_id, 0)
         if now - last_time < 20:
             await log.send(f"⏱️ Cooldown active for {display_name} ({int(now - last_time)}s since last)")
+            # Remove the reaction
+            try:
+                channel = bot.get_channel(payload.channel_id)
+                if not channel:
+                    channel = await bot.fetch_channel(payload.channel_id)
+                message = await channel.fetch_message(payload.message_id)
+                await message.remove_reaction(payload.emoji, member)
+                await log.send(f"↩️ Removed reaction from {display_name} due to cooldown.")
+            except Exception as e:
+                await log.send(f"❌ Failed to remove reaction from {display_name}: {e}")
             return
         reaction_cooldowns[payload.user_id] = now
+
 
         # Grant access
         await private_channel.set_permissions(member, view_channel=True, send_messages=True)
@@ -445,16 +457,9 @@ async def on_raw_reaction_remove(payload):
             return
         display_name = member.nick if member.nick else member.name
         # await log.send(f"👤 Member resolved: {display_name}")
-        thread, private_channel = active_events[message_id]
+        thread = active_events[message_id]["thread"]
+        private_channel = active_events[message_id]["channel"]
         # await log.send(f"📌 Event thread ID: {thread.id}, private channel ID: {private_channel.id}")
-
-        # spam cooldowns
-        now = time.time()
-        last_time = reaction_cooldowns.get(payload.user_id, 0)
-        if now - last_time < 20:
-            await log.send(f"⏱️ Cooldown active for {display_name} ({int(now - last_time)}s since last)")
-            return
-        reaction_cooldowns[payload.user_id] = now
 
         # Revoke access
         await private_channel.set_permissions(member, overwrite=None)
@@ -508,7 +513,7 @@ async def check_event_reminders():
         event_date = data["event_date"]
         days_since = (today - event_date).days
         # Ensure we only run this at/near 12:00pm NY time
-        if time(12, 0) <= now.time() < time(14, 0):  # 2-hour window (12–2pm)
+        if datetime.time(12, 0) <= now.time() < datetime.time(14, 0):  # 2-hour window (12–2pm)
             if days_since == 1 and "day1" not in data.get("reminders_sent", set()):
                 await channel.send("We extend our heartfelt gratitude to all who have graced this event with their presence! Kindly share your photos with us here in chat :)")
                 data.setdefault("reminders_sent", set()).add("day1")
@@ -805,5 +810,3 @@ async def remove(ctx, *, name: str):
     else:
         await log.send(f"No points to remove for user {user_id}.")
         await ctx.send(f"{member.display_name} has no points to remove.")
-
-
