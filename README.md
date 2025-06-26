@@ -7,3 +7,4 @@ I have a server in which I organize largescale events that take place at my hous
 ---
 ## "𝑇ℎ𝑒 𝑀𝑖𝑐𝑘𝑙𝑒𝑦 𝐸𝑠𝑡𝑎𝑡𝑒" Discord Server
 Here's an explaination on what my server entails! 
+<img src=https: alt=Discord Server Screenshot width=300 align=right>
