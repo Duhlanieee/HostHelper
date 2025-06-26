@@ -1,3 +1,5 @@
+<img src=images/Profile.jpg alt=Discord Server Screenshot width=200 align=right>
+
 # HostHelper
 Discord bot I made for myself :)
 
