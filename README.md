@@ -60,7 +60,7 @@ So glad you asked. I plan on putting some gifs here to explain better but for no
  
 - Spam Prevention:
 
-  - Very quickly did my friends realize they could spam the "name is attending" message in the private chat. There's now a cooldown on how often the bot responds to reactions from each user. This doesn't prevent them from reacting, just doesn't respond.
+  - Very quickly did my friends realize they could spam the "name is attending" message in the private chat. There's now a cooldown on how often a user can add a reaction lmao
  
 - active_events List:
 
