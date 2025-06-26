@@ -16,6 +16,8 @@ Wrapped in antique elegance and aristocratic aesthetics, "𝑇ℎ𝑒 𝑀𝑖�
 ---
 The bot's presence in the server acts as a personification of my house. Online means the house is open to visitors, while do not disturb means the house is closed. Fun fact, the pfp is a picture of my dishware! :D
 
+---
+
 <img src=images/Leaderboard.png alt=Discord Server Screenshot width=1050>
 
 ---
