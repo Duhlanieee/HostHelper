@@ -1,6 +1,8 @@
 # HostHelper
 Discord bot I made for myself :)
 
+[Here's the code](HostHelper.py)
+
 ---
 As a frequent host in largescale events, this bot serves as my assistant! I have a server in which I organize events that take place at my house, and this bot helps me with crowd management and automated preparation.
 
