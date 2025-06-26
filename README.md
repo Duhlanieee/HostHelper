@@ -14,6 +14,6 @@ Wrapped in antique elegance and aristocratic aesthetics, "𝑇ℎ𝑒 𝑀𝑖�
 
 <img src=Profile.jpg alt=Discord Server Screenshot width=200 align=left>
 
-The bot's presence in the server acts as a personification of my house, named "𝐷𝑒𝑙𝑎𝑛𝑖𝑒'𝑠 𝑀𝑎𝑛𝑜𝑟". The status of the bot represents the status of my house. Online means the house is open to visitors, while do not disturb means the house is closed. The custom status further explains the state for more detail. 
+The bot's presence in the server acts as a personification of my house. The status of the bot represents the status of my house. Online means the house is open to visitors, while do not disturb means the house is closed. 
 
 <img src=Leaderboard.png alt=Discord Server Screenshot width=1050>
