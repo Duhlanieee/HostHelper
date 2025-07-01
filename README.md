@@ -26,11 +26,10 @@ So glad you asked. I plan on putting some gifs here to explain better but for no
 ## Frontend
 - Crowd Management:
   
-  - When a new event is announced in the "Events" channel, it creates a private text chat dedicated to that event.
-  - Those who RSVP by reacting with 👍 will get access to the private chat.
-  - Makes a thread where it annouces when someone RSVPs (or denounces their RSVP).
+  - When a new event is announced in the "Events" channel, it creates a private text chat dedicated to that event. It also makes a thread where it annouces when someone RSVPs (or denounces their RSVP).![Event](https://github.com/user-attachments/assets/c736c570-7df9-4dde-ab63-8c1b466097dc)
+  - Those who RSVP by reacting with 👍 will get access to the private chat, and reaction removals will remove them from the chat.![React](https://github.com/user-attachments/assets/8f131b52-dae1-4145-8e35-c8a099be6f2d)
+  - Manages a quiet voice channel called “there are no events at this time,” which appears whenever there are no active events.![Delete](https://github.com/user-attachments/assets/b9ce38ca-1800-454e-9cde-5ac2d4f3d97f)
   - Sends reminders in the private chat asking people to share photos after the event, and warning them when the chat is about to close.
-  - Manages a quiet voice channel called “there are no events at this time,” which appears whenever there are no active events.
 
 - Manor Disposition:
 
