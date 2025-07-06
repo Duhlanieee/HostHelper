@@ -10,7 +10,7 @@ import os
 import unicodedata
 from operator import itemgetter
 from discord.ext import tasks
-from datetime import datetime, timedelta
+from datetime import datetime, time as dt_time, timedelta
 import time
 from zoneinfo import ZoneInfo
 
@@ -59,11 +59,18 @@ async def setup_log_channel():
                     pass
     log = LogWrapper(status_logs_channel)
     globals()['log'] = log
+    
+    
+
+# Turn unicode names into regular letters, I use fancy fonts a lot hehe
+def normalize(text):
+    return unicodedata.normalize("NFKD", text).encode("ASCII", "ignore").decode().lower()
 
 
 
-# Takes the text in event message and makes it into a channel name
+# Takes the text in event message and makes it into a channel name + grabs the date + grabs the event name
 def parse_event_info(message_content):
+    message_content = normalize(message_content) # take any unicode and make it normal font
     lines = message_content.splitlines()
     if len(lines) < 2:
         return None, None, None
@@ -505,6 +512,8 @@ async def on_guild_channel_delete(channel):
 # automatic messages in chats after events
 @tasks.loop(hours=2)
 async def check_event_reminders():
+    if log:
+        await log.send("⏰ check_event_reminders() triggered.")
     now = datetime.now(ZoneInfo("America/New_York"))
     today = now.date()
     for msg_id, data in list(active_events.items()):
@@ -513,7 +522,7 @@ async def check_event_reminders():
         event_date = data["event_date"]
         days_since = (today - event_date).days
         # Ensure we only run this at/near 12:00pm NY time
-        if datetime.time(12, 0) <= now.time() < datetime.time(14, 0):  # 2-hour window (12–2pm)
+        if dt_time(12, 0) <= now.time() < dt_time(14, 0):  # 2-hour window (12–2pm)
             if days_since == 1 and "day1" not in data.get("reminders_sent", set()):
                 await channel.send("We extend our heartfelt gratitude to all who have graced this event with their presence! Kindly share your photos with us here in chat :)")
                 data.setdefault("reminders_sent", set()).add("day1")
@@ -623,6 +632,17 @@ async def on_member_join(member):
                 await log.send(f"❌ Missing permission to assign role {role.name} to {member.display_name}")
         else:
             await log.send(f"❌ Role ID {TEMP_ROLE_ID} not found in guild")
+            
+            
+    # update leaderboard to include name
+    await update_leaderboard(bot)
+
+# goes w previous line
+@bot.event
+async def on_member_remove(member):
+    # update leaderboard to remove name
+    await update_leaderboard(bot)
+
 
 
 
@@ -756,10 +776,6 @@ async def update_leaderboard(bot):
         await log.send(f"Failed to update leaderboard: {e}")
 
 
-# Turn unicode names into regular letters
-def normalize(text):
-    return unicodedata.normalize("NFKD", text).encode("ASCII", "ignore").decode().lower()
-
 
 # Find member
 def find_member_by_name(guild, name_fragment):
@@ -810,3 +826,5 @@ async def remove(ctx, *, name: str):
     else:
         await log.send(f"No points to remove for user {user_id}.")
         await ctx.send(f"{member.display_name} has no points to remove.")
+
+
