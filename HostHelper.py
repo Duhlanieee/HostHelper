@@ -512,8 +512,8 @@ async def on_guild_channel_delete(channel):
 # automatic messages in chats after events
 @tasks.loop(hours=2)
 async def check_event_reminders():
-    if log:
-        await log.send("⏰ check_event_reminders() triggered.")
+    #if log:
+    #    await log.send("⏰ check_event_reminders() triggered.")
     now = datetime.now(ZoneInfo("America/New_York"))
     today = now.date()
     for msg_id, data in list(active_events.items()):
@@ -531,7 +531,7 @@ async def check_event_reminders():
                 data.setdefault("reminders_sent", set()).add("day2")
             elif days_since == 3 and "day3" not in data.get("reminders_sent", set()):
                 if log:
-                    await log.send(f"⚠️ Reminder: The event channel for message ID {msg_id} needs to be deleted soon.")
+                    await log.send(f"⚠️ Reminder: The event channel for {event_date} needs to be deleted soon.")
                 data.setdefault("reminders_sent", set()).add("day3")
                 # remove the event from active_events
                 del active_events[msg_id]
