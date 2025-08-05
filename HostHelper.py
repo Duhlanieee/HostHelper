@@ -113,8 +113,11 @@ def parse_event_info(message_content):
     channel_name = f"{base_event_hyphenated}-{channel_date_part}"
     # create datetime object
     try:
-        # Assume current year
-        event_date = datetime.strptime(f"{month} {day} {datetime.now().year}", "%B %d %Y").date()
+        year = datetime.now().year
+        try:
+            event_date = datetime.strptime(f"{month} {day} {year}", "%B %d %Y").date()
+        except ValueError:
+            event_date = datetime.strptime(f"{month} {day} {year}", "%b %d %Y").date()
     except ValueError:
         if log:
             asyncio.create_task(log.send(f"⚠️ Failed to convert date: {month} {day}"))
