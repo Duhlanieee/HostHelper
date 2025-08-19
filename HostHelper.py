@@ -123,6 +123,7 @@ def parse_event_info(message_content):
             asyncio.create_task(log.send(f"⚠️ Failed to convert date: {month} {day}"))
         return None, None
 
+
     return event_name, channel_name, event_date
 
 
@@ -428,7 +429,7 @@ async def on_raw_reaction_add(payload):
         await private_channel.set_permissions(member, view_channel=True, send_messages=True)
         await private_channel.send(f"{display_name} is attending this event!")
         await thread.send(f"{display_name} is attending this event!")
-        await log.send(f"✅ Access granted and attendance logged for {display_name}")
+        # await log.send(f"✅ Access granted and attendance logged for {display_name}")
 
     except Exception as e:
         await log.send(f"🔥 ERROR in on_raw_reaction_add: {e}")
@@ -475,7 +476,7 @@ async def on_raw_reaction_remove(payload):
         await private_channel.set_permissions(member, overwrite=None)
         await private_channel.send(f"{display_name} is no longer attending this event.")
         await thread.send(f"{display_name} is no longer attending this event.")
-        await log.send(f"✅ Access revoked and cancellation logged for {display_name}")
+        # await log.send(f"✅ Access revoked and cancellation logged for {display_name}")
 
     except Exception as e:
         await log.send(f"🔥 ERROR in on_raw_reaction_remove: {e}")
@@ -536,8 +537,7 @@ async def check_event_reminders():
                 if log:
                     await log.send(f"⚠️ Reminder: The event channel for {event_date} needs to be deleted soon.")
                 data.setdefault("reminders_sent", set()).add("day3")
-                # remove the event from active_events
-                del active_events[msg_id]
+
 
 
 
@@ -643,8 +643,17 @@ async def on_member_join(member):
 # goes w previous line
 @bot.event
 async def on_member_remove(member):
-    # update leaderboard to remove name
+    # Remove their points entry if present so they don't appear orphaned on the leaderboard
+    points, message_id = load_data()
+    uid = str(member.id)
+    if uid in points:
+        del points[uid]
+        save_data(points, message_id)
+        if log:
+            await log.send(f"➖ Removed points entry for {member.display_name} ({uid}) because they left the server.")
+    # Update leaderboard
     await update_leaderboard(bot)
+
 
 
 
@@ -795,39 +804,123 @@ def find_member_by_name(guild, name_fragment):
 
 
 # Points commands: !add name gives name 1 point, !remove name takes away 1 point from name
+# ^ this works only in the Logs channel, as doing the same commands in a private event channel will add/remove people to the chat
 
-@bot.command()
+# Helper: find event (msg_id and data) for the current private channel
+def find_event_by_channel(channel):
+    for msg_id, data in active_events.items():
+        ch = data.get("channel")
+        if ch and ch.id == channel.id:
+            return msg_id, data
+    return None, None
+
+# Reworked !add command (dual-purpose: leaderboard in LOG channel, RSVP in event channel)
+@bot.command(name="add")
 async def add(ctx, *, name: str):
-    # await log.send(f"Received !add command from {ctx.author} for name fragment '{name}'.")
-    member = find_member_by_name(ctx.guild, name)
-    if not member:
-        await ctx.send(f"No matching member found for '{name}'.")
-        await log.send(f"No match found for name '{name}'")
-        return
-    points, message_id = load_data()
-    user_id = str(member.id)
-    points[user_id] = points.get(user_id, 0) + 1
-    save_data(points, message_id)
-    await ctx.send(f"Awarded 1 point to {member.display_name}.")
-    await update_leaderboard(bot)
-
-@bot.command()
-async def remove(ctx, *, name: str):
-    await log.send(f"Received !remove command from {ctx.author} for name fragment '{name}'.")
-    member = find_member_by_name(ctx.guild, name)
-    if not member:
-        await ctx.send(f"No matching member found for '{name}'.")
-        await log.send(f"No match found for name '{name}'")
-        return
-    points, message_id = load_data()
-    user_id = str(member.id)
-    if user_id in points and points[user_id] > 0:
-        points[user_id] = max(points[user_id] - 1, 0)
+    # Leaderboard use ONLY in Logs channel
+    if ctx.channel.id == LOG_CHANNEL_ID:
+        # Existing leaderboard logic (unchanged)
+        member = find_member_by_name(ctx.guild, name)
+        if not member:
+            await ctx.send(f"No matching member found for '{name}'.")
+            await log.send(f"No match found for name '{name}'")
+            return
+        points, message_id = load_data()
+        user_id = str(member.id)
+        points[user_id] = points.get(user_id, 0) + 1
         save_data(points, message_id)
-        await ctx.send(f"Removed 1 point from {member.display_name}.")
+        await ctx.send(f"Awarded 1 point to {member.display_name}.")
         await update_leaderboard(bot)
-    else:
-        await log.send(f"No points to remove for user {user_id}.")
-        await ctx.send(f"{member.display_name} has no points to remove.")
+        return
 
+    # RSVP use only in event private chats
+    event_msg_id, data = find_event_by_channel(ctx.channel)
+    if not data:
+        await ctx.send("This command only works in event private chats or the Logs channel for leaderboard changes.")
+        return
+
+    # Restrict who can force-RSVP (you can remove/adjust this)
+    if ctx.author.id != AUTHOR_ID:
+        await ctx.send("You don't have permission to force RSVP people.")
+        return
+    member = find_member_by_name(ctx.guild, name)
+    if not member:
+        await ctx.send(f"No matching member found for '{name}'.")
+        return
+    display_name = member.display_name
+    try:
+        private_channel = data["channel"]
+        thread = data["thread"]
+        # Grant access (same as raw reaction add logic)
+        await private_channel.set_permissions(member, view_channel=True, send_messages=True)
+        # Announce in private channel and thread
+        await private_channel.send(f"{display_name} is attending this event!")
+        await thread.send(f"{display_name} is attending this event!")
+        await ctx.send(f"✅ {display_name} has been force-RSVP'd and given access.")
+    except Exception as e:
+        await ctx.send(f"Failed to RSVP {display_name}: {e}")
+        if log:
+            await log.send(f"Failed to force-RSVP {display_name} in channel {ctx.channel.id}: {e}")
+
+# Reworked !remove command (dual-purpose: leaderboard in LOG channel, RSVP removal in event channel)
+@bot.command(name="remove")
+async def remove(ctx, *, name: str):
+    # Leaderboard removal ONLY in Logs channel
+    if ctx.channel.id == LOG_CHANNEL_ID:
+        await log.send(f"Received !remove command from {ctx.author} for name fragment '{name}'.")
+        member = find_member_by_name(ctx.guild, name)
+        if not member:
+            await ctx.send(f"No matching member found for '{name}'.")
+            await log.send(f"No match found for name '{name}'")
+            return
+        points, message_id = load_data()
+        user_id = str(member.id)
+        if user_id in points and points[user_id] > 0:
+            points[user_id] = max(points[user_id] - 1, 0)
+            save_data(points, message_id)
+            await ctx.send(f"Removed 1 point from {member.display_name}.")
+            await update_leaderboard(bot)
+        else:
+            await log.send(f"No points to remove for user {user_id}.")
+            await ctx.send(f"{member.display_name} has no points to remove.")
+        return
+
+    # RSVP removal only in event private chats
+    event_msg_id, data = find_event_by_channel(ctx.channel)
+    if not data:
+        await ctx.send("This command only works in event private chats or the Logs channel for leaderboard changes.")
+        return
+    # Restrict who can force-remove (you can remove/adjust this)
+    if ctx.author.id != AUTHOR_ID:
+        await ctx.send("You don't have permission to force un-RSVP people.")
+        return
+    member = find_member_by_name(ctx.guild, name)
+    if not member:
+        await ctx.send(f"No matching member found for '{name}'.")
+        return
+    display_name = member.display_name
+    try:
+        private_channel = data["channel"]
+        thread = data["thread"]
+        # Revoke access
+        await private_channel.set_permissions(member, overwrite=None)
+        # Announce in private channel and thread
+        await private_channel.send(f"{display_name} is no longer attending this event.")
+        await thread.send(f"{display_name} is no longer attending this event.")
+        await ctx.send(f"✅ {display_name} has been force-unRSVP'd and access revoked.")
+        # Try to remove the user's 👍 reaction from the original announcement message
+        try:
+            events_channel = bot.get_channel(EVENTS_CHANNEL_ID) or await bot.fetch_channel(EVENTS_CHANNEL_ID)
+            if events_channel and event_msg_id:
+                orig_msg = await events_channel.fetch_message(int(event_msg_id))
+                # Remove the user's 👍 if present
+                await orig_msg.remove_reaction("👍", member)
+        except Exception as e:
+            # Non-fatal — just log
+            if log:
+                await log.send(f"Failed to remove 👍 from original message {event_msg_id} for {display_name}: {e}")
+    except Exception as e:
+        await ctx.send(f"Failed to un-RSVP {display_name}: {e}")
+        if log:
+            await log.send(f"Failed to force-unRSVP {display_name} in channel {ctx.channel.id}: {e}")
 
